@@ -32,6 +32,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import okhttp3.Headers;
+import okhttp3.internal.Util;
 import org.junit.After;
 import org.junit.Rule;
 import org.junit.Test;
@@ -231,8 +232,8 @@ public final class MockWebServerTest {
     long elapsedNanos = System.nanoTime() - startNanos;
     long elapsedMillis = NANOSECONDS.toMillis(elapsedNanos);
 
-    assertTrue(String.format("Request + Response: %sms", elapsedMillis), elapsedMillis >= 500);
-    assertTrue(String.format("Request + Response: %sms", elapsedMillis), elapsedMillis < 1000);
+    assertTrue(Util.format("Request + Response: %sms", elapsedMillis), elapsedMillis >= 500);
+    assertTrue(Util.format("Request + Response: %sms", elapsedMillis), elapsedMillis < 1000);
   }
 
   /**
@@ -257,8 +258,8 @@ public final class MockWebServerTest {
     long elapsedNanos = System.nanoTime() - startNanos;
     long elapsedMillis = NANOSECONDS.toMillis(elapsedNanos);
 
-    assertTrue(String.format("Request + Response: %sms", elapsedMillis), elapsedMillis >= 500);
-    assertTrue(String.format("Request + Response: %sms", elapsedMillis), elapsedMillis < 1000);
+    assertTrue(Util.format("Request + Response: %sms", elapsedMillis), elapsedMillis >= 500);
+    assertTrue(Util.format("Request + Response: %sms", elapsedMillis), elapsedMillis < 1000);
   }
 
   /** Delay the response body by sleeping 1s. */
@@ -273,13 +274,16 @@ public final class MockWebServerTest {
     assertEquals('A', in.read());
     long elapsedNanos = System.nanoTime() - startNanos;
     long elapsedMillis = NANOSECONDS.toMillis(elapsedNanos);
-    assertTrue(String.format("Request + Response: %sms", elapsedMillis), elapsedMillis >= 1000);
+    assertTrue(Util.format("Request + Response: %sms", elapsedMillis), elapsedMillis >= 1000);
 
     in.close();
   }
 
   @Test public void disconnectRequestHalfway() throws IOException {
     server.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_DURING_REQUEST_BODY));
+    // Limit the size of the request body that the server holds in memory to an arbitrary
+    // 3.5 MBytes so this test can pass on devices with little memory.
+    server.setBodyLimit(7 * 512 * 1024);
 
     HttpURLConnection connection = (HttpURLConnection) server.url("/").url().openConnection();
     connection.setRequestMethod("POST");
@@ -380,5 +384,19 @@ public final class MockWebServerTest {
       fail();
     } catch (ConnectException expected) {
     }
+  }
+
+  @Test public void shutdownWhileBlockedDispatching() throws Exception {
+    // Enqueue a request that'll cause MockWebServer to hang on QueueDispatcher.dispatch().
+    HttpURLConnection connection = (HttpURLConnection) server.url("/").url().openConnection();
+    connection.setReadTimeout(500);
+    try {
+      connection.getResponseCode();
+      fail();
+    } catch (SocketTimeoutException expected) {
+    }
+
+    // Shutting down the server should unblock the dispatcher.
+    server.shutdown();
   }
 }

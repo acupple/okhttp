@@ -24,8 +24,8 @@ import java.util.concurrent.TimeUnit;
 import javax.net.SocketFactory;
 import okhttp3.internal.Internal;
 import okhttp3.internal.RecordingOkAuthenticator;
-import okhttp3.internal.http.StreamAllocation;
-import okhttp3.internal.io.RealConnection;
+import okhttp3.internal.connection.RealConnection;
+import okhttp3.internal.connection.StreamAllocation;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
@@ -81,8 +81,10 @@ public final class ConnectionPoolTest {
     pool.cleanupRunning = true; // Prevent the cleanup runnable from being started.
 
     RealConnection c1 = newConnection(pool, routeA1, 50L);
-    StreamAllocation streamAllocation = new StreamAllocation(pool, addressA);
-    streamAllocation.acquire(c1);
+    synchronized (pool) {
+      StreamAllocation streamAllocation = new StreamAllocation(pool, addressA);
+      streamAllocation.acquire(c1);
+    }
 
     // Running at time 50, the pool returns that nothing can be evicted until time 150.
     assertEquals(100L, pool.cleanup(50L));
@@ -172,8 +174,10 @@ public final class ConnectionPoolTest {
 
   /** Use a helper method so there's no hidden reference remaining on the stack. */
   private void allocateAndLeakAllocation(ConnectionPool pool, RealConnection connection) {
-    StreamAllocation leak = new StreamAllocation(pool, connection.route().address());
-    leak.acquire(connection);
+    synchronized (pool) {
+      StreamAllocation leak = new StreamAllocation(pool, connection.route().address());
+      leak.acquire(connection);
+    }
   }
 
   /**

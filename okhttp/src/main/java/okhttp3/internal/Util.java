@@ -29,10 +29,8 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.TimeZone;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
@@ -128,29 +126,6 @@ public final class Util {
   }
 
   /**
-   * Closes {@code a} and {@code b}. If either close fails, this completes the other close and
-   * rethrows the first encountered exception.
-   */
-  public static void closeAll(Closeable a, Closeable b) throws IOException {
-    Throwable thrown = null;
-    try {
-      a.close();
-    } catch (Throwable e) {
-      thrown = e;
-    }
-    try {
-      b.close();
-    } catch (Throwable e) {
-      if (thrown == null) thrown = e;
-    }
-    if (thrown == null) return;
-    if (thrown instanceof IOException) throw (IOException) thrown;
-    if (thrown instanceof RuntimeException) throw (RuntimeException) thrown;
-    if (thrown instanceof Error) throw (Error) thrown;
-    throw new AssertionError(thrown);
-  }
-
-  /**
    * Attempts to exhaust {@code source}, returning true if successful. This is useful when reading a
    * complete source is helpful, such as when doing so completes a cache body or frees a socket
    * connection for reuse.
@@ -175,7 +150,7 @@ public final class Util {
     source.timeout().deadlineNanoTime(now + Math.min(originalDuration, timeUnit.toNanos(duration)));
     try {
       Buffer skipBuffer = new Buffer();
-      while (source.read(skipBuffer, 2048) != -1) {
+      while (source.read(skipBuffer, 8192) != -1) {
         skipBuffer.clear();
       }
       return true; // Success! The source has been exhausted.
@@ -242,11 +217,6 @@ public final class Util {
   /** Returns an immutable list containing {@code elements}. */
   public static <T> List<T> immutableList(T... elements) {
     return Collections.unmodifiableList(Arrays.asList(elements.clone()));
-  }
-
-  /** Returns an immutable copy of {@code map}. */
-  public static <K, V> Map<K, V> immutableMap(Map<K, V> map) {
-    return Collections.unmodifiableMap(new LinkedHashMap<>(map));
   }
 
   public static ThreadFactory threadFactory(final String name, final boolean daemon) {
@@ -321,8 +291,11 @@ public final class Util {
         && e.getMessage().contains("getsockname failed");
   }
 
-  public static boolean contains(String[] array, String value) {
-    return Arrays.asList(array).contains(value);
+  public static <T> int indexOf(T[] array, T value) {
+    for (int i = 0, size = array.length; i < size; i++) {
+      if (equal(array[i], value)) return i;
+    }
+    return -1;
   }
 
   public static String[] concat(String[] array, String value) {
@@ -445,5 +418,10 @@ public final class Util {
   /** Returns true if {@code host} is not a host name and might be an IP address. */
   public static boolean verifyAsIpAddress(String host) {
     return VERIFY_AS_IP_ADDRESS.matcher(host).matches();
+  }
+
+  /** Returns a {@link Locale#US} formatted {@link String}. */
+  public static String format(String format, Object... args) {
+    return String.format(Locale.US, format, args);
   }
 }

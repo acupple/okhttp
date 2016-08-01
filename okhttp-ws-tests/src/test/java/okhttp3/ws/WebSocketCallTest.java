@@ -21,16 +21,15 @@ import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import javax.net.ssl.SSLContext;
 import okhttp3.OkHttpClient;
+import okhttp3.RecordingHostnameVerifier;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
-import okhttp3.internal.SslContextBuilder;
+import okhttp3.internal.tls.SslClient;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
-import okhttp3.RecordingHostnameVerifier;
 import okio.Buffer;
 import org.junit.After;
 import org.junit.Rule;
@@ -41,7 +40,7 @@ import static okhttp3.ws.WebSocket.TEXT;
 public final class WebSocketCallTest {
   @Rule public final MockWebServer server = new MockWebServer();
 
-  private final SSLContext sslContext = SslContextBuilder.localhost();
+  private final SslClient sslClient = SslClient.localhost();
   private final WebSocketRecorder listener = new WebSocketRecorder();
   private final Random random = new Random(0);
   private OkHttpClient client = new OkHttpClient();
@@ -88,17 +87,29 @@ public final class WebSocketCallTest {
     listener.assertTextMessage("Hello, WebSockets!");
   }
 
-  @Test public void okButNotOk() {
-    server.enqueue(new MockResponse().setResponseCode(200));
+  @Test public void non101RetainsBody() throws IOException {
+    server.enqueue(new MockResponse().setResponseCode(200).setBody("Body"));
     awaitWebSocket();
     listener.assertFailure(ProtocolException.class, "Expected HTTP 101 response but was '200 OK'");
+    listener.assertResponse(200, "Body");
   }
 
-  @Test public void notFound() {
+  @Test public void notFound() throws IOException {
     server.enqueue(new MockResponse().setStatus("HTTP/1.1 404 Not Found"));
     awaitWebSocket();
     listener.assertFailure(ProtocolException.class,
         "Expected HTTP 101 response but was '404 Not Found'");
+    listener.assertResponse(404, "");
+  }
+
+  @Test public void clientTimeoutClosesBody() throws IOException {
+    server.enqueue(new MockResponse().setResponseCode(408));
+    WebSocketListener serverListener = new EmptyWebSocketListener();
+    server.enqueue(new MockResponse().withWebSocketUpgrade(serverListener));
+
+    WebSocket webSocket = awaitWebSocket();
+    webSocket.sendPing(new Buffer().writeUtf8("WebSockets are fun!"));
+    listener.assertPong(new Buffer().writeUtf8("WebSockets are fun!"));
   }
 
   @Test public void missingConnectionHeader() {
@@ -173,9 +184,9 @@ public final class WebSocketCallTest {
   }
 
   @Test public void wssScheme() throws IOException {
-    server.useHttps(sslContext.getSocketFactory(), false);
+    server.useHttps(sslClient.socketFactory, false);
     client = client.newBuilder()
-        .sslSocketFactory(sslContext.getSocketFactory())
+        .sslSocketFactory(sslClient.socketFactory, sslClient.trustManager)
         .hostnameVerifier(new RecordingHostnameVerifier())
         .build();
 
@@ -183,9 +194,9 @@ public final class WebSocketCallTest {
   }
 
   @Test public void httpsScheme() throws IOException {
-    server.useHttps(sslContext.getSocketFactory(), false);
+    server.useHttps(sslClient.socketFactory, false);
     client = client.newBuilder()
-        .sslSocketFactory(sslContext.getSocketFactory())
+        .sslSocketFactory(sslClient.socketFactory, sslClient.trustManager)
         .hostnameVerifier(new RecordingHostnameVerifier())
         .build();
 
@@ -236,7 +247,7 @@ public final class WebSocketCallTest {
       }
 
       @Override public void onFailure(IOException e, Response response) {
-        listener.onFailure(e, null);
+        listener.onFailure(e, response);
         failureRef.set(e);
         latch.countDown();
       }
